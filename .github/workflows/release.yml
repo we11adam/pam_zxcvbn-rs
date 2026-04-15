@@ -75,7 +75,7 @@ jobs:
 
               yum install -y pam-devel curl >/tmp/yum.log
               curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal --default-toolchain stable >/tmp/rustup.log
-              source "${HOME}/.cargo/env"
+              source "${CARGO_HOME}/env"
 
               cargo build --release --locked
 
