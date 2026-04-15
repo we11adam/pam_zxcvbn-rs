@@ -4,6 +4,7 @@ pub struct Options {
     pub tries: u32,
     pub min_score: u8,
     pub min_entropy: Option<f64>,
+    pub use_inputs: Vec<String>,
     pub enforce_for_root: bool,
     pub local_users_only: bool,
     pub local_users_file: String,
@@ -20,6 +21,7 @@ impl Default for Options {
             tries: 1,
             min_score: 3,
             min_entropy: None,
+            use_inputs: vec![],
             enforce_for_root: false,
             local_users_only: false,
             local_users_file: "/etc/passwd".to_string(),
@@ -54,6 +56,13 @@ impl Options {
                                 opts.min_entropy = Some(f);
                             }
                         }
+                    }
+                    "user_inputs" => {
+                        opts.use_inputs = value
+                            .split(",")
+                            .map(|input| input.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
                     }
                     "local_users_file" => {
                         opts.local_users_file = value.to_string();
@@ -205,6 +214,27 @@ mod tests {
     }
 
     #[test]
+    fn test_user_inputs_parse_and_trim() {
+        let args: Vec<String> = vec!["user_inputs=company, hostname ,service".into()];
+        let opts = Options::parse(&args);
+        assert_eq!(opts.use_inputs, vec!["company", "hostname", "service"]);
+    }
+
+    #[test]
+    fn test_user_inputs_empty_entries_filtered() {
+        let args: Vec<String> = vec!["user_inputs=, company, ,hostname,, ".into()];
+        let opts = Options::parse(&args);
+        assert_eq!(opts.use_inputs, vec!["company", "hostname"]);
+    }
+
+    #[test]
+    fn test_user_inputs_only_commas_becomes_empty() {
+        let args: Vec<String> = vec!["user_inputs=,,,".into()];
+        let opts = Options::parse(&args);
+        assert!(opts.use_inputs.is_empty());
+    }
+
+    #[test]
     fn test_invalid_numeric_values_ignored() {
         let args: Vec<String> = vec![
             "tries=abc".into(),
@@ -219,10 +249,7 @@ mod tests {
 
     #[test]
     fn test_unknown_options_ignored() {
-        let args: Vec<String> = vec![
-            "unknown_flag".into(),
-            "unknown_key=value".into(),
-        ];
+        let args: Vec<String> = vec!["unknown_flag".into(), "unknown_key=value".into()];
         let opts = Options::parse(&args);
         // Should still have defaults
         assert_eq!(opts.tries, 1);
@@ -239,10 +266,7 @@ mod tests {
 
     #[test]
     fn test_try_first_pass_and_use_first_pass() {
-        let args: Vec<String> = vec![
-            "try_first_pass".into(),
-            "use_first_pass".into(),
-        ];
+        let args: Vec<String> = vec!["try_first_pass".into(), "use_first_pass".into()];
         let opts = Options::parse(&args);
         assert!(opts.try_first_pass);
         assert!(opts.use_first_pass);
@@ -270,10 +294,7 @@ mod tests {
 
     #[test]
     fn test_last_value_wins() {
-        let args: Vec<String> = vec![
-            "tries=3".into(),
-            "tries=5".into(),
-        ];
+        let args: Vec<String> = vec!["tries=3".into(), "tries=5".into()];
         let opts = Options::parse(&args);
         assert_eq!(opts.tries, 5);
     }

@@ -1,4 +1,6 @@
-use pamsm::{pam_module, Pam, PamError, PamFlags, PamLibExt, PamMsgStyle, PamServiceModule, LogLvl};
+use pamsm::{
+    pam_module, LogLvl, Pam, PamError, PamFlags, PamLibExt, PamMsgStyle, PamServiceModule,
+};
 use std::ffi::CString;
 
 mod local_users;
@@ -98,13 +100,21 @@ impl PamServiceModule for PamZxcvbn {
 
         // On PRELIM_CHECK pass, we have nothing to do.
         if raw_flags & PAM_PRELIM_CHECK != 0 {
-            log_debug(&pamh, &opts, "pam_zxcvbn: PRELIM_CHECK phase, returning SUCCESS");
+            log_debug(
+                &pamh,
+                &opts,
+                "pam_zxcvbn: PRELIM_CHECK phase, returning SUCCESS",
+            );
             return PamError::SUCCESS;
         }
 
         // We only act on UPDATE_AUTHTOK.
         if raw_flags & PAM_UPDATE_AUTHTOK == 0 {
-            log_debug(&pamh, &opts, "pam_zxcvbn: neither PRELIM_CHECK nor UPDATE_AUTHTOK, returning SERVICE_ERR");
+            log_debug(
+                &pamh,
+                &opts,
+                "pam_zxcvbn: neither PRELIM_CHECK nor UPDATE_AUTHTOK, returning SERVICE_ERR",
+            );
             return PamError::SERVICE_ERR;
         }
 
@@ -127,43 +137,41 @@ impl PamServiceModule for PamZxcvbn {
 
         // local_users_only: skip strength check for non-local users,
         // but still prompt for password so downstream modules can use use_authtok.
-        if opts.local_users_only {
-            if !local_users::is_local_user(&username, &opts.local_users_file) {
-                log_debug(
-                    &pamh,
-                    &opts,
-                    &format!(
-                        "pam_zxcvbn: user '{}' not found in {}, skipping strength check",
-                        username, opts.local_users_file
-                    ),
-                );
-                // Still obtain and set the password for downstream modules.
-                let pass = if opts.use_authtok || opts.use_first_pass {
-                    match get_cached_password(&pamh) {
+        if opts.local_users_only && !local_users::is_local_user(&username, &opts.local_users_file) {
+            log_debug(
+                &pamh,
+                &opts,
+                &format!(
+                    "pam_zxcvbn: user '{}' not found in {}, skipping strength check",
+                    username, opts.local_users_file
+                ),
+            );
+            // Still obtain and set the password for downstream modules.
+            let pass = if opts.use_authtok || opts.use_first_pass {
+                match get_cached_password(&pamh) {
+                    Ok(p) => p,
+                    Err(e) => return e,
+                }
+            } else if opts.try_first_pass {
+                match get_cached_password(&pamh) {
+                    Ok(p) => p,
+                    Err(_) => match prompt_new_password(&pamh, &opts, silent) {
                         Ok(p) => p,
-                        Err(e) => return e,
-                    }
-                } else if opts.try_first_pass {
-                    match get_cached_password(&pamh) {
-                        Ok(p) => p,
-                        Err(_) => match prompt_new_password(&pamh, &opts, silent) {
-                            Ok(p) => p,
-                            Err(e) => return e,
-                        },
-                    }
-                } else {
-                    match prompt_new_password(&pamh, &opts, silent) {
-                        Ok(p) => p,
-                        Err(e) => return e,
-                    }
-                };
-                match CString::new(pass) {
-                    Ok(cpass) => match pamh.set_authtok(&cpass) {
-                        Ok(()) => return PamError::SUCCESS,
                         Err(e) => return e,
                     },
-                    Err(_) => return PamError::AUTHTOK_ERR,
                 }
+            } else {
+                match prompt_new_password(&pamh, &opts, silent) {
+                    Ok(p) => p,
+                    Err(e) => return e,
+                }
+            };
+            match CString::new(pass) {
+                Ok(cpass) => match pamh.set_authtok(&cpass) {
+                    Ok(()) => return PamError::SUCCESS,
+                    Err(e) => return e,
+                },
+                Err(_) => return PamError::AUTHTOK_ERR,
             }
         }
 
@@ -196,7 +204,10 @@ impl PamServiceModule for PamZxcvbn {
                 match get_cached_password(&pamh) {
                     Ok(p) => p,
                     Err(e) => {
-                        log_err(&pamh, "pam_zxcvbn: use_authtok set but no password available");
+                        log_err(
+                            &pamh,
+                            "pam_zxcvbn: use_authtok set but no password available",
+                        );
                         return e;
                     }
                 }
@@ -217,7 +228,11 @@ impl PamServiceModule for PamZxcvbn {
                 // Try cached password first, fall back to prompting.
                 match get_cached_password(&pamh) {
                     Ok(p) => {
-                        log_debug(&pamh, &opts, "pam_zxcvbn: using cached password from try_first_pass");
+                        log_debug(
+                            &pamh,
+                            &opts,
+                            "pam_zxcvbn: using cached password from try_first_pass",
+                        );
                         p
                     }
                     Err(_) => {
@@ -246,7 +261,9 @@ impl PamServiceModule for PamZxcvbn {
             };
 
             // Evaluate password strength.
-            let user_inputs: Vec<&str> = vec![username.as_str()];
+            let mut user_inputs: Vec<&str> =
+                opts.use_inputs.iter().map(|input| input.as_str()).collect();
+            user_inputs.push(username.as_str());
             let result = strength::evaluate(&new_pass, &user_inputs, &opts);
 
             log_debug(
@@ -289,7 +306,10 @@ impl PamServiceModule for PamZxcvbn {
                 log_debug(
                     &pamh,
                     &opts,
-                    &format!("pam_zxcvbn: weak password accepted for root: {}", strength_msg),
+                    &format!(
+                        "pam_zxcvbn: weak password accepted for root: {}",
+                        strength_msg
+                    ),
                 );
                 conv_info(&pamh, silent, &format!("WARNING: {}", strength_msg));
                 match CString::new(new_pass) {

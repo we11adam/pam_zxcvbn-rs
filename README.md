@@ -100,6 +100,13 @@ password requisite pam_zxcvbn.so local_users_only local_users_file=/etc/passwd r
 password required  pam_unix.so use_authtok sha512 shadow
 ```
 
+Example with additional zxcvbn inputs:
+
+```pam
+password requisite pam_zxcvbn.so retry=3 user_inputs=company,hostname,service
+password required  pam_unix.so use_authtok sha512 shadow
+```
+
 Install the compiled library into your PAM module directory, commonly one of:
 
 - `/lib/security`
@@ -117,6 +124,7 @@ Supported options:
 - `tries=N` or `retry=N`: number of password entry attempts, minimum `1`
 - `min_score=N`: required zxcvbn score from `0` to `4`, default `3`
 - `min_entropy=F`: required `guesses_log10` threshold; overrides `min_score` when set
+- `user_inputs=a,b,c`: extra comma-separated strings passed to `zxcvbn` alongside the username; whitespace is trimmed and empty entries are ignored
 - `enforce_for_root`: reject weak passwords even when the caller is root
 - `local_users_only`: skip strength checks for users not present in the local passwd file
 - `local_users_file=/path/to/passwd`: passwd-style file used by `local_users_only`
@@ -129,6 +137,7 @@ Supported options:
 
 - on `PAM_PRELIM_CHECK`, the module returns success and does not prompt
 - on `PAM_UPDATE_AUTHTOK`, the module validates the new password
+- the password is checked against the username plus any configured `user_inputs`
 - for non-local users with `local_users_only`, the module skips the strength check but still sets the password token for downstream modules
 - when root changes a password without `enforce_for_root`, failed strength checks become warnings instead of hard failures
 
