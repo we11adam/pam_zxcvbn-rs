@@ -35,11 +35,43 @@ target/release/libpam_zxcvbn.so
 
 ### Docker build
 
-The repository includes a simple build container:
+If you want a quick manual build without installing Rust on the host, the repository `Dockerfile` can export the compiled module directly to a local directory:
 
 ```bash
-docker build -t pam-zxcvbn-rs .
+mkdir -p dist
+docker build --output type=local,dest=./dist .
 ```
+
+The exported file will be:
+
+```bash
+dist/libpam_zxcvbn.so
+```
+
+This is the shortest container-based path for a manual build.
+
+By default, Docker builds for the host platform. For example:
+
+- on Apple Silicon or other ARM64 hosts, the exported module will usually be `arm64`
+- on x86_64 hosts, the exported module will usually be `amd64`
+
+You can select the target platform explicitly:
+
+```bash
+mkdir -p dist-amd64
+docker build --platform=linux/amd64 --output type=local,dest=./dist-amd64 .
+
+mkdir -p dist-arm64
+docker build --platform=linux/arm64 --output type=local,dest=./dist-arm64 .
+```
+
+### Build behavior and compatibility
+
+- local `cargo build --release` produces a binary for your current Linux build environment
+- the repository `Dockerfile` is a convenience build for manual use, not the release baseline
+- GitHub release artifacts are built separately inside `manylinux2014` containers to keep a `glibc 2.17` baseline
+
+If you need the broadest Linux compatibility, prefer the GitHub release assets over a locally built Docker image artifact.
 
 ## GitHub Releases
 
