@@ -1,4 +1,5 @@
 use crate::options::Options;
+use zxcvbn::Score;
 
 pub struct CheckResult {
     pub passed: bool,
@@ -11,7 +12,16 @@ pub struct CheckResult {
 pub fn evaluate(password: &str, user_inputs: &[&str], opts: &Options) -> CheckResult {
     let entropy = zxcvbn::zxcvbn(password, user_inputs);
 
-    let score = entropy.score() as u8;
+    // Score is #[non_exhaustive]; map known variants explicitly and treat
+    // any future unknown variant as the strongest known value.
+    let score: u8 = match entropy.score() {
+        Score::Zero => 0,
+        Score::One => 1,
+        Score::Two => 2,
+        Score::Three => 3,
+        Score::Four => 4,
+        _ => 4,
+    };
     let guesses_log10 = entropy.guesses_log10();
 
     let passed = if let Some(min_e) = opts.min_entropy {
