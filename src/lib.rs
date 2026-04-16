@@ -152,18 +152,29 @@ impl PamServiceModule for PamZxcvbn {
                     Ok(p) => p,
                     Err(e) => return e,
                 }
-            } else if opts.try_first_pass {
-                match get_cached_password(&pamh) {
-                    Ok(p) => p,
-                    Err(_) => match prompt_new_password(&pamh, &opts, silent) {
-                        Ok(p) => p,
-                        Err(e) => return e,
-                    },
-                }
             } else {
-                match prompt_new_password(&pamh, &opts, silent) {
-                    Ok(p) => p,
-                    Err(e) => return e,
+                let cached = if opts.try_first_pass {
+                    get_cached_password(&pamh).ok()
+                } else {
+                    None
+                };
+                match cached {
+                    Some(p) => p,
+                    None => {
+                        let mut attempt = 0u32;
+                        loop {
+                            attempt += 1;
+                            match prompt_new_password(&pamh, &opts, silent) {
+                                Ok(p) => break p,
+                                Err(e) => {
+                                    if attempt >= opts.tries {
+                                        return e;
+                                    }
+                                    conv_info(&pamh, silent, "Please try again.");
+                                }
+                            }
+                        }
+                    }
                 }
             };
             match CString::new(pass) {
