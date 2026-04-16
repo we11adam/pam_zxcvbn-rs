@@ -243,7 +243,12 @@ impl PamServiceModule for PamZxcvbn {
                         );
                         match prompt_new_password(&pamh, &opts, silent) {
                             Ok(p) => p,
-                            Err(e) => return e,
+                            Err(e) => {
+                                if attempt >= opts.tries {
+                                    return e;
+                                }
+                                continue;
+                            }
                         }
                     }
                 }
