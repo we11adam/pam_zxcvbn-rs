@@ -140,6 +140,7 @@ Supported options:
 - the password is checked against the username plus any configured `user_inputs`
 - for non-local users with `local_users_only`, the module skips the strength check but still sets the password token for downstream modules
 - when root changes a password without `enforce_for_root`, failed strength checks become warnings instead of hard failures
+- `zxcvbn` evaluates only the first 100 characters of the password to bound its analysis cost; a long passphrase whose first 100 characters are weak will be judged weak regardless of what follows
 
 ## Development
 
