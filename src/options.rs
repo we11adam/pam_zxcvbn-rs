@@ -4,7 +4,7 @@ pub struct Options {
     pub tries: u32,
     pub min_score: u8,
     pub min_entropy: Option<f64>,
-    pub use_inputs: Vec<String>,
+    pub user_inputs: Vec<String>,
     pub enforce_for_root: bool,
     pub local_users_only: bool,
     pub local_users_file: String,
@@ -21,7 +21,7 @@ impl Default for Options {
             tries: 1,
             min_score: 3,
             min_entropy: None,
-            use_inputs: vec![],
+            user_inputs: vec![],
             enforce_for_root: false,
             local_users_only: false,
             local_users_file: "/etc/passwd".to_string(),
@@ -58,7 +58,7 @@ impl Options {
                         }
                     }
                     "user_inputs" => {
-                        opts.use_inputs = value
+                        opts.user_inputs = value
                             .split(",")
                             .map(|input| input.trim().to_string())
                             .filter(|s| !s.is_empty())
@@ -217,21 +217,21 @@ mod tests {
     fn test_user_inputs_parse_and_trim() {
         let args: Vec<String> = vec!["user_inputs=company, hostname ,service".into()];
         let opts = Options::parse(&args);
-        assert_eq!(opts.use_inputs, vec!["company", "hostname", "service"]);
+        assert_eq!(opts.user_inputs, vec!["company", "hostname", "service"]);
     }
 
     #[test]
     fn test_user_inputs_empty_entries_filtered() {
         let args: Vec<String> = vec!["user_inputs=, company, ,hostname,, ".into()];
         let opts = Options::parse(&args);
-        assert_eq!(opts.use_inputs, vec!["company", "hostname"]);
+        assert_eq!(opts.user_inputs, vec!["company", "hostname"]);
     }
 
     #[test]
     fn test_user_inputs_only_commas_becomes_empty() {
         let args: Vec<String> = vec!["user_inputs=,,,".into()];
         let opts = Options::parse(&args);
-        assert!(opts.use_inputs.is_empty());
+        assert!(opts.user_inputs.is_empty());
     }
 
     #[test]

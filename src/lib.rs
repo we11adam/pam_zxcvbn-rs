@@ -280,7 +280,7 @@ impl PamServiceModule for PamZxcvbn {
             // Evaluate password strength. Use a lossy UTF-8 view only for
             // zxcvbn; the original bytes are preserved for set_authtok.
             let mut user_inputs: Vec<&str> =
-                opts.use_inputs.iter().map(|input| input.as_str()).collect();
+                opts.user_inputs.iter().map(|input| input.as_str()).collect();
             user_inputs.push(username.as_str());
             let pw_lossy = Zeroizing::new(
                 String::from_utf8_lossy(new_pass.as_bytes()).into_owned(),
