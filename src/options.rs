@@ -298,4 +298,55 @@ mod tests {
         let opts = Options::parse(&args);
         assert_eq!(opts.tries, 5);
     }
+
+    #[test]
+    fn test_user_inputs_single_value() {
+        let args: Vec<String> = vec!["user_inputs=company".into()];
+        let opts = Options::parse(&args);
+        assert_eq!(opts.user_inputs, vec!["company"]);
+    }
+
+    #[test]
+    fn test_authtok_type_empty_value() {
+        let args: Vec<String> = vec!["authtok_type=".into()];
+        let opts = Options::parse(&args);
+        assert!(opts.authtok_type.is_empty());
+        assert_eq!(opts.new_password_prompt(), "New password: ");
+        assert_eq!(opts.retype_password_prompt(), "Retype new password: ");
+    }
+
+    #[test]
+    fn test_min_entropy_large_value() {
+        let args: Vec<String> = vec!["min_entropy=1000.0".into()];
+        let opts = Options::parse(&args);
+        assert_eq!(opts.min_entropy, Some(1000.0));
+    }
+
+    #[test]
+    fn test_min_entropy_tiny_positive() {
+        let args: Vec<String> = vec!["min_entropy=0.0001".into()];
+        let opts = Options::parse(&args);
+        assert_eq!(opts.min_entropy, Some(0.0001));
+    }
+
+    #[test]
+    fn test_min_entropy_negative_infinity_rejected() {
+        let args: Vec<String> = vec!["min_entropy=-inf".into()];
+        let opts = Options::parse(&args);
+        assert!(opts.min_entropy.is_none());
+    }
+
+    #[test]
+    fn test_tries_huge_value_accepted() {
+        let args: Vec<String> = vec![format!("tries={}", u32::MAX)];
+        let opts = Options::parse(&args);
+        assert_eq!(opts.tries, u32::MAX);
+    }
+
+    #[test]
+    fn test_tries_overflow_ignored() {
+        let args: Vec<String> = vec!["tries=99999999999999999999".into()];
+        let opts = Options::parse(&args);
+        assert_eq!(opts.tries, 1); // parse fails, stays at default
+    }
 }

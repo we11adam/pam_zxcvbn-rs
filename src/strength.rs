@@ -158,4 +158,60 @@ mod tests {
         assert!(!result.passed);
         assert_eq!(result.score, 0);
     }
+
+    #[test]
+    fn test_empty_password() {
+        let opts = Options::default();
+        let result = evaluate("", &[], &opts);
+        assert!(!result.passed);
+        assert_eq!(result.score, 0);
+        // zxcvbn returns -inf for an empty password.
+        assert!(result.guesses_log10.is_infinite() && result.guesses_log10.is_sign_negative());
+    }
+
+    #[test]
+    fn test_empty_password_rejected_even_with_zero_entropy_threshold() {
+        // min_entropy = 0.0 is the most permissive configurable threshold,
+        // but -inf >= 0.0 is still false, so empty passwords never pass.
+        let mut opts = Options::default();
+        opts.min_entropy = Some(0.0);
+        let result = evaluate("", &[], &opts);
+        assert!(!result.passed);
+    }
+
+    #[test]
+    fn test_username_as_password_rejected() {
+        let opts = Options::default();
+        let result = evaluate("alice", &["alice"], &opts);
+        assert!(!result.passed);
+        assert_eq!(result.score, 0);
+    }
+
+    #[test]
+    fn test_score_in_range_zero_to_four() {
+        let opts = Options::default();
+        for pw in [
+            "",
+            "a",
+            "password",
+            "password123",
+            "correct horse battery staple xkcd",
+            "Tr0ub4dor&3-mU\u{00e9}gatron-xkcd-936-crazy!!",
+        ] {
+            let result = evaluate(pw, &[], &opts);
+            assert!(
+                result.score <= 4,
+                "score out of range for {:?}: {}",
+                pw,
+                result.score
+            );
+        }
+    }
+
+    #[test]
+    fn test_user_input_identical_to_password_fails() {
+        let opts = Options::default();
+        let result = evaluate("MyCompanyPassword", &["MyCompanyPassword"], &opts);
+        assert!(!result.passed);
+    }
 }

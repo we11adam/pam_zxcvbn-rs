@@ -105,4 +105,62 @@ mod tests {
         // Line starting with # is treated as comment
         assert!(!is_local_user("#disabled", path));
     }
+
+    #[test]
+    fn test_last_line_without_trailing_newline() {
+        let mut tmpfile = tempfile::NamedTempFile::new().unwrap();
+        // No trailing newline on the final record.
+        write!(tmpfile, "root:x:0:0:root:/root:/bin/bash").unwrap();
+
+        let path = tmpfile.path().to_str().unwrap();
+        assert!(is_local_user("root", path));
+    }
+
+    #[test]
+    fn test_crlf_line_endings() {
+        let mut tmpfile = tempfile::NamedTempFile::new().unwrap();
+        write!(
+            tmpfile,
+            "root:x:0:0:root:/root:/bin/bash\r\ntestuser:x:1000:1000::/home/test:/bin/bash\r\n"
+        )
+        .unwrap();
+
+        let path = tmpfile.path().to_str().unwrap();
+        // The username is the text before the first ':', so CRLF in later
+        // fields doesn't affect the username match.
+        assert!(is_local_user("root", path));
+        assert!(is_local_user("testuser", path));
+    }
+
+    #[test]
+    fn test_empty_username_field_does_not_match_real_users() {
+        let mut tmpfile = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmpfile, ":x:0:0::/:/bin/false").unwrap();
+        writeln!(tmpfile, "root:x:0:0:root:/root:/bin/bash").unwrap();
+
+        let path = tmpfile.path().to_str().unwrap();
+        // The empty-username record shouldn't cause searches for real names to match.
+        assert!(!is_local_user("nobody", path));
+        assert!(is_local_user("root", path));
+    }
+
+    #[test]
+    fn test_path_is_directory_returns_false() {
+        // fs::read_to_string on a directory fails, which should be treated
+        // as "not a local user" rather than panicking.
+        let tmpdir = tempfile::tempdir().unwrap();
+        let path = tmpdir.path().to_str().unwrap();
+        assert!(!is_local_user("root", path));
+    }
+
+    #[test]
+    fn test_whitespace_in_username_field() {
+        let mut tmpfile = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmpfile, " spaced :x:1000:1000::/:/bin/bash").unwrap();
+
+        let path = tmpfile.path().to_str().unwrap();
+        // Exact match required, including surrounding spaces.
+        assert!(is_local_user(" spaced ", path));
+        assert!(!is_local_user("spaced", path));
+    }
 }

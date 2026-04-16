@@ -362,3 +362,23 @@ impl PamServiceModule for PamZxcvbn {
 }
 
 pam_module!(PamZxcvbn);
+
+#[cfg(test)]
+mod tests {
+    use super::score_description;
+
+    #[test]
+    fn score_description_known_values() {
+        assert!(score_description(0).contains("Too guessable"));
+        assert!(score_description(1).contains("Very guessable"));
+        assert!(score_description(2).contains("Somewhat guessable"));
+        assert!(score_description(3).contains("Safely unguessable"));
+        assert!(score_description(4).contains("Very unguessable"));
+    }
+
+    #[test]
+    fn score_description_out_of_range() {
+        assert_eq!(score_description(5), "Unknown score");
+        assert_eq!(score_description(255), "Unknown score");
+    }
+}
