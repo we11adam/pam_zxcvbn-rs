@@ -26,9 +26,9 @@ fn log_error(pamh: &Pam, msg: &str) {
     let _ = pamh.syslog(LogLvl::ERR, &format!("pam_zxcvbn: {}", msg));
 }
 
-fn conv_prompt(pamh: &Pam, msg: &str) -> Result<String, PamError> {
+fn conv_prompt(pamh: &Pam, msg: &str) -> Result<CString, PamError> {
     match pamh.conv(Some(msg), PamMsgStyle::PROMPT_ECHO_OFF) {
-        Ok(Some(cstr)) => Ok(cstr.to_string_lossy().into_owned()),
+        Ok(Some(cstr)) => Ok(cstr.to_owned()),
         Ok(None) => Err(PamError::CONV_ERR),
         Err(e) => Err(e),
     }
@@ -47,7 +47,7 @@ fn conv_info(pamh: &Pam, silent: bool, msg: &str) {
 }
 
 /// Prompt the user for a new password and confirm it.
-fn prompt_new_password(pamh: &Pam, opts: &Options, silent: bool) -> Result<String, PamError> {
+fn prompt_new_password(pamh: &Pam, opts: &Options, silent: bool) -> Result<CString, PamError> {
     let pass1 = conv_prompt(pamh, &opts.new_password_prompt())?;
     let pass2 = conv_prompt(pamh, &opts.retype_password_prompt())?;
 
@@ -56,7 +56,7 @@ fn prompt_new_password(pamh: &Pam, opts: &Options, silent: bool) -> Result<Strin
         return Err(PamError::AUTHTOK_ERR);
     }
 
-    if pass1.is_empty() {
+    if pass1.as_bytes().is_empty() {
         conv_error(pamh, silent, "No password supplied.");
         return Err(PamError::AUTHTOK_ERR);
     }
@@ -65,14 +65,13 @@ fn prompt_new_password(pamh: &Pam, opts: &Options, silent: bool) -> Result<Strin
 }
 
 /// Get the new password from a stacked module's cached authtok.
-fn get_cached_password(pamh: &Pam) -> Result<String, PamError> {
+fn get_cached_password(pamh: &Pam) -> Result<CString, PamError> {
     match pamh.get_cached_authtok() {
         Ok(Some(cstr)) => {
-            let s = cstr.to_string_lossy().into_owned();
-            if s.is_empty() {
+            if cstr.to_bytes().is_empty() {
                 Err(PamError::AUTHTOK_ERR)
             } else {
-                Ok(s)
+                Ok(cstr.to_owned())
             }
         }
         Ok(None) => Err(PamError::AUTHTOK_ERR),
@@ -177,12 +176,9 @@ impl PamServiceModule for PamZxcvbn {
                     }
                 }
             };
-            match CString::new(pass) {
-                Ok(cpass) => match pamh.set_authtok(&cpass) {
-                    Ok(()) => return PamError::SUCCESS,
-                    Err(e) => return e,
-                },
-                Err(_) => return PamError::AUTHTOK_ERR,
+            match pamh.set_authtok(&pass) {
+                Ok(()) => return PamError::SUCCESS,
+                Err(e) => return e,
             }
         }
 
@@ -276,11 +272,13 @@ impl PamServiceModule for PamZxcvbn {
                 }
             };
 
-            // Evaluate password strength.
+            // Evaluate password strength. Use a lossy UTF-8 view only for
+            // zxcvbn; the original bytes are preserved for set_authtok.
             let mut user_inputs: Vec<&str> =
                 opts.use_inputs.iter().map(|input| input.as_str()).collect();
             user_inputs.push(username.as_str());
-            let result = strength::evaluate(&new_pass, &user_inputs, &opts);
+            let pw_lossy = String::from_utf8_lossy(new_pass.as_bytes());
+            let result = strength::evaluate(&pw_lossy, &user_inputs, &opts);
 
             log_debug(
                 &pamh,
@@ -294,17 +292,11 @@ impl PamServiceModule for PamZxcvbn {
             if result.passed {
                 log_debug(&pamh, &opts, "password strength check passed");
                 // Store the new password for downstream modules.
-                match CString::new(new_pass) {
-                    Ok(cpass) => match pamh.set_authtok(&cpass) {
-                        Ok(()) => return PamError::SUCCESS,
-                        Err(e) => {
-                            log_error(&pamh, "failed to set authtok");
-                            return e;
-                        }
-                    },
-                    Err(_) => {
-                        log_error(&pamh, "password contains null byte");
-                        return PamError::AUTHTOK_ERR;
+                match pamh.set_authtok(&new_pass) {
+                    Ok(()) => return PamError::SUCCESS,
+                    Err(e) => {
+                        log_error(&pamh, "failed to set authtok");
+                        return e;
                     }
                 }
             }
@@ -328,12 +320,9 @@ impl PamServiceModule for PamZxcvbn {
                     ),
                 );
                 conv_info(&pamh, silent, &format!("WARNING: {}", strength_msg));
-                match CString::new(new_pass) {
-                    Ok(cpass) => match pamh.set_authtok(&cpass) {
-                        Ok(()) => return PamError::SUCCESS,
-                        Err(e) => return e,
-                    },
-                    Err(_) => return PamError::AUTHTOK_ERR,
+                match pamh.set_authtok(&new_pass) {
+                    Ok(()) => return PamError::SUCCESS,
+                    Err(e) => return e,
                 }
             }
 
