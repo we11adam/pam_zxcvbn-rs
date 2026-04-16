@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 pamsm = { version = "0.5", features = ["libpam"] }
 zxcvbn = "3"
 libc = "0.2"
+zeroize = { version = "1", features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -2,6 +2,7 @@ use pamsm::{
     pam_module, LogLvl, Pam, PamError, PamFlags, PamLibExt, PamMsgStyle, PamServiceModule,
 };
 use std::ffi::CString;
+use zeroize::Zeroizing;
 
 mod local_users;
 mod options;
@@ -26,9 +27,9 @@ fn log_error(pamh: &Pam, msg: &str) {
     let _ = pamh.syslog(LogLvl::ERR, &format!("pam_zxcvbn: {}", msg));
 }
 
-fn conv_prompt(pamh: &Pam, msg: &str) -> Result<CString, PamError> {
+fn conv_prompt(pamh: &Pam, msg: &str) -> Result<Zeroizing<CString>, PamError> {
     match pamh.conv(Some(msg), PamMsgStyle::PROMPT_ECHO_OFF) {
-        Ok(Some(cstr)) => Ok(cstr.to_owned()),
+        Ok(Some(cstr)) => Ok(Zeroizing::new(cstr.to_owned())),
         Ok(None) => Err(PamError::CONV_ERR),
         Err(e) => Err(e),
     }
@@ -47,7 +48,11 @@ fn conv_info(pamh: &Pam, silent: bool, msg: &str) {
 }
 
 /// Prompt the user for a new password and confirm it.
-fn prompt_new_password(pamh: &Pam, opts: &Options, silent: bool) -> Result<CString, PamError> {
+fn prompt_new_password(
+    pamh: &Pam,
+    opts: &Options,
+    silent: bool,
+) -> Result<Zeroizing<CString>, PamError> {
     let pass1 = conv_prompt(pamh, &opts.new_password_prompt())?;
     let pass2 = conv_prompt(pamh, &opts.retype_password_prompt())?;
 
@@ -65,13 +70,13 @@ fn prompt_new_password(pamh: &Pam, opts: &Options, silent: bool) -> Result<CStri
 }
 
 /// Get the new password from a stacked module's cached authtok.
-fn get_cached_password(pamh: &Pam) -> Result<CString, PamError> {
+fn get_cached_password(pamh: &Pam) -> Result<Zeroizing<CString>, PamError> {
     match pamh.get_cached_authtok() {
         Ok(Some(cstr)) => {
             if cstr.to_bytes().is_empty() {
                 Err(PamError::AUTHTOK_ERR)
             } else {
-                Ok(cstr.to_owned())
+                Ok(Zeroizing::new(cstr.to_owned()))
             }
         }
         Ok(None) => Err(PamError::AUTHTOK_ERR),
@@ -277,7 +282,9 @@ impl PamServiceModule for PamZxcvbn {
             let mut user_inputs: Vec<&str> =
                 opts.use_inputs.iter().map(|input| input.as_str()).collect();
             user_inputs.push(username.as_str());
-            let pw_lossy = String::from_utf8_lossy(new_pass.as_bytes());
+            let pw_lossy = Zeroizing::new(
+                String::from_utf8_lossy(new_pass.as_bytes()).into_owned(),
+            );
             let result = strength::evaluate(&pw_lossy, &user_inputs, &opts);
 
             log_debug(
