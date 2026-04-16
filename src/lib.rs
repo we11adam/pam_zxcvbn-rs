@@ -18,12 +18,12 @@ struct PamZxcvbn;
 
 fn log_debug(pamh: &Pam, opts: &Options, msg: &str) {
     if opts.debug {
-        let _ = pamh.syslog(LogLvl::DEBUG, msg);
+        let _ = pamh.syslog(LogLvl::DEBUG, &format!("pam_zxcvbn: {}", msg));
     }
 }
 
-fn log_err(pamh: &Pam, msg: &str) {
-    let _ = pamh.syslog(LogLvl::ERR, msg);
+fn log_error(pamh: &Pam, msg: &str) {
+    let _ = pamh.syslog(LogLvl::ERR, &format!("pam_zxcvbn: {}", msg));
 }
 
 fn conv_prompt(pamh: &Pam, msg: &str) -> Result<String, PamError> {
@@ -103,7 +103,7 @@ impl PamServiceModule for PamZxcvbn {
             log_debug(
                 &pamh,
                 &opts,
-                "pam_zxcvbn: PRELIM_CHECK phase, returning SUCCESS",
+                "PRELIM_CHECK phase, returning SUCCESS",
             );
             return PamError::SUCCESS;
         }
@@ -113,27 +113,27 @@ impl PamServiceModule for PamZxcvbn {
             log_debug(
                 &pamh,
                 &opts,
-                "pam_zxcvbn: neither PRELIM_CHECK nor UPDATE_AUTHTOK, returning SERVICE_ERR",
+                "neither PRELIM_CHECK nor UPDATE_AUTHTOK, returning SERVICE_ERR",
             );
             return PamError::SERVICE_ERR;
         }
 
-        log_debug(&pamh, &opts, "pam_zxcvbn: UPDATE_AUTHTOK phase");
+        log_debug(&pamh, &opts, "UPDATE_AUTHTOK phase");
 
         // Get the username.
         let username = match pamh.get_user(None) {
             Ok(Some(u)) => u.to_string_lossy().into_owned(),
             Ok(None) => {
-                log_err(&pamh, "pam_zxcvbn: cannot determine username");
+                log_error(&pamh, "cannot determine username");
                 return PamError::USER_UNKNOWN;
             }
             Err(e) => {
-                log_err(&pamh, "pam_zxcvbn: cannot determine username");
+                log_error(&pamh, "cannot determine username");
                 return e;
             }
         };
 
-        log_debug(&pamh, &opts, &format!("pam_zxcvbn: user={}", username));
+        log_debug(&pamh, &opts, &format!("user={}", username));
 
         // local_users_only: skip strength check for non-local users,
         // but still prompt for password so downstream modules can use use_authtok.
@@ -142,7 +142,7 @@ impl PamServiceModule for PamZxcvbn {
                 &pamh,
                 &opts,
                 &format!(
-                    "pam_zxcvbn: user '{}' not found in {}, skipping strength check",
+                    "user '{}' not found in {}, skipping strength check",
                     username, opts.local_users_file
                 ),
             );
@@ -183,7 +183,7 @@ impl PamServiceModule for PamZxcvbn {
             log_debug(
                 &pamh,
                 &opts,
-                "pam_zxcvbn: running as root without enforce_for_root, failures will be warnings",
+                "running as root without enforce_for_root, failures will be warnings",
             );
         }
 
@@ -195,7 +195,7 @@ impl PamServiceModule for PamZxcvbn {
             log_debug(
                 &pamh,
                 &opts,
-                &format!("pam_zxcvbn: attempt {}/{}", attempt, opts.tries),
+                &format!("attempt {}/{}", attempt, opts.tries),
             );
 
             // Obtain the new password.
@@ -204,9 +204,9 @@ impl PamServiceModule for PamZxcvbn {
                 match get_cached_password(&pamh) {
                     Ok(p) => p,
                     Err(e) => {
-                        log_err(
+                        log_error(
                             &pamh,
-                            "pam_zxcvbn: use_authtok set but no password available",
+                            "use_authtok set but no password available",
                         );
                         return e;
                     }
@@ -219,7 +219,7 @@ impl PamServiceModule for PamZxcvbn {
                         log_debug(
                             &pamh,
                             &opts,
-                            "pam_zxcvbn: use_first_pass set but no password available",
+                            "use_first_pass set but no password available",
                         );
                         return e;
                     }
@@ -231,7 +231,7 @@ impl PamServiceModule for PamZxcvbn {
                         log_debug(
                             &pamh,
                             &opts,
-                            "pam_zxcvbn: using cached password from try_first_pass",
+                            "using cached password from try_first_pass",
                         );
                         p
                     }
@@ -239,7 +239,7 @@ impl PamServiceModule for PamZxcvbn {
                         log_debug(
                             &pamh,
                             &opts,
-                            "pam_zxcvbn: no cached password, prompting user",
+                            "no cached password, prompting user",
                         );
                         match prompt_new_password(&pamh, &opts, silent) {
                             Ok(p) => p,
@@ -270,24 +270,24 @@ impl PamServiceModule for PamZxcvbn {
                 &pamh,
                 &opts,
                 &format!(
-                    "pam_zxcvbn: score={} guesses_log10={:.2} passed={}",
+                    "score={} guesses_log10={:.2} passed={}",
                     result.score, result.guesses_log10, result.passed
                 ),
             );
 
             if result.passed {
-                log_debug(&pamh, &opts, "pam_zxcvbn: password strength check passed");
+                log_debug(&pamh, &opts, "password strength check passed");
                 // Store the new password for downstream modules.
                 match CString::new(new_pass) {
                     Ok(cpass) => match pamh.set_authtok(&cpass) {
                         Ok(()) => return PamError::SUCCESS,
                         Err(e) => {
-                            log_err(&pamh, "pam_zxcvbn: failed to set authtok");
+                            log_error(&pamh, "failed to set authtok");
                             return e;
                         }
                     },
                     Err(_) => {
-                        log_err(&pamh, "pam_zxcvbn: password contains null byte");
+                        log_error(&pamh, "password contains null byte");
                         return PamError::AUTHTOK_ERR;
                     }
                 }
@@ -307,7 +307,7 @@ impl PamServiceModule for PamZxcvbn {
                     &pamh,
                     &opts,
                     &format!(
-                        "pam_zxcvbn: weak password accepted for root: {}",
+                        "weak password accepted for root: {}",
                         strength_msg
                     ),
                 );
@@ -339,7 +339,7 @@ impl PamServiceModule for PamZxcvbn {
                 log_debug(
                     &pamh,
                     &opts,
-                    &format!("pam_zxcvbn: max tries ({}) reached, rejecting", opts.tries),
+                    &format!("max tries ({}) reached, rejecting", opts.tries),
                 );
                 return PamError::MAXTRIES;
             }
