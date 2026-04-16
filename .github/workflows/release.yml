@@ -11,6 +11,7 @@ permissions:
 
 env:
   LIB_NAME: libpam_zxcvbn.so
+  RELEASE_LIB_NAME: pam_zxcvbn.so
   GLIBC_BASELINE: "2.17"
   DIST_DIR: dist
 
@@ -56,6 +57,7 @@ jobs:
             -e ASSET_NAME="${ASSET_NAME}" \
             -e DIST_DIR="${DIST_DIR}" \
             -e LIB_NAME="${LIB_NAME}" \
+            -e RELEASE_LIB_NAME="${RELEASE_LIB_NAME}" \
             -e HOST_UID="$(id -u)" \
             -e HOST_GID="$(id -g)" \
             -v "${PWD}:/work" \
@@ -79,7 +81,7 @@ jobs:
 
               cargo build --release --locked
 
-              install -D -m 0755 "${CARGO_TARGET_DIR}/release/${LIB_NAME}" "/work/${DIST_DIR}/${ASSET_NAME}/${LIB_NAME}"
+              install -D -m 0755 "${CARGO_TARGET_DIR}/release/${LIB_NAME}" "/work/${DIST_DIR}/${ASSET_NAME}/${RELEASE_LIB_NAME}"
               readelf --version-info "${CARGO_TARGET_DIR}/release/${LIB_NAME}" >"/work/${DIST_DIR}/${ASSET_NAME}/glibc-version-info.txt"
 
               tar -C "/work/${DIST_DIR}" -czf "/work/${DIST_DIR}/${ASSET_NAME}.tar.gz" "${ASSET_NAME}"
