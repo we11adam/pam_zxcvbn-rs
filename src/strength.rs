@@ -1,5 +1,5 @@
 use crate::options::Options;
-use zxcvbn::Score;
+use zxcvbn::{zxcvbn, Score};
 
 pub struct CheckResult {
     pub passed: bool,
@@ -10,7 +10,7 @@ pub struct CheckResult {
 }
 
 pub fn evaluate(password: &str, user_inputs: &[&str], opts: &Options) -> CheckResult {
-    let entropy = zxcvbn::zxcvbn(password, user_inputs);
+    let entropy = zxcvbn(password, user_inputs);
 
     // Score is #[non_exhaustive]; map known variants explicitly and treat
     // any future unknown variant as the strongest known value.

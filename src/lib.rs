@@ -171,10 +171,10 @@ fn do_chauthtok<P: PamIo>(pam: &P, raw_flags: i32, silent: bool, opts: &Options)
                 }
             }
         };
-        match pam.set_authtok(&pass) {
-            Ok(()) => return PamError::SUCCESS,
-            Err(e) => return e,
-        }
+        return match pam.set_authtok(&pass) {
+            Ok(()) => PamError::SUCCESS,
+            Err(e) => e,
+        };
     }
 
     // Determine if we should enforce or just warn.
@@ -271,13 +271,13 @@ fn do_chauthtok<P: PamIo>(pam: &P, raw_flags: i32, silent: bool, opts: &Options)
         if result.passed {
             log_debug(pam, opts, "password strength check passed");
             // Store the new password for downstream modules.
-            match pam.set_authtok(&new_pass) {
-                Ok(()) => return PamError::SUCCESS,
+            return match pam.set_authtok(&new_pass) {
+                Ok(()) => PamError::SUCCESS,
                 Err(e) => {
                     log_error(pam, "failed to set authtok");
-                    return e;
+                    e
                 }
-            }
+            };
         }
 
         // Password is too weak.
@@ -296,10 +296,10 @@ fn do_chauthtok<P: PamIo>(pam: &P, raw_flags: i32, silent: bool, opts: &Options)
                 &format!("weak password accepted for root: {}", strength_msg),
             );
             conv_info(pam, silent, &format!("WARNING: {}", strength_msg));
-            match pam.set_authtok(&new_pass) {
-                Ok(()) => return PamError::SUCCESS,
-                Err(e) => return e,
-            }
+            return match pam.set_authtok(&new_pass) {
+                Ok(()) => PamError::SUCCESS,
+                Err(e) => e,
+            };
         }
 
         // Show feedback to the user.
