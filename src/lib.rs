@@ -250,11 +250,13 @@ fn do_chauthtok<P: PamIo>(pam: &P, raw_flags: i32, silent: bool, opts: &Options)
 
         // Evaluate password strength. Use a lossy UTF-8 view only for
         // zxcvbn; the original bytes are preserved for set_authtok.
-        let mut user_inputs: Vec<&str> =
-            opts.user_inputs.iter().map(|input| input.as_str()).collect();
+        let mut user_inputs: Vec<&str> = opts
+            .user_inputs
+            .iter()
+            .map(|input| input.as_str())
+            .collect();
         user_inputs.push(username.as_str());
-        let pw_lossy =
-            Zeroizing::new(String::from_utf8_lossy(new_pass.as_bytes()).into_owned());
+        let pw_lossy = Zeroizing::new(String::from_utf8_lossy(new_pass.as_bytes()).into_owned());
         let result = strength::evaluate(&pw_lossy, &user_inputs, opts);
 
         log_debug(
@@ -714,10 +716,7 @@ mod flow_tests {
         opts.local_users_file = file.path().to_string_lossy().into_owned();
         let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
         assert_eq!(rc, PamError::SUCCESS);
-        assert_eq!(
-            mock.set_authtok_calls.borrow()[0].as_bytes(),
-            b"password"
-        );
+        assert_eq!(mock.set_authtok_calls.borrow()[0].as_bytes(), b"password");
     }
 
     /// Regression: the local_users_only skip path used to return on the
