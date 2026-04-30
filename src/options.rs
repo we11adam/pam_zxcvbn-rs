@@ -8,6 +8,7 @@ pub struct Options {
     pub enforce_for_root: bool,
     pub local_users_only: bool,
     pub local_users_file: String,
+    pub blacklist: String,
     pub authtok_type: String,
     pub try_first_pass: bool,
     pub use_first_pass: bool,
@@ -25,6 +26,7 @@ impl Default for Options {
             enforce_for_root: false,
             local_users_only: false,
             local_users_file: "/etc/passwd".to_string(),
+            blacklist: String::new(),
             authtok_type: String::new(),
             try_first_pass: false,
             use_first_pass: false,
@@ -66,6 +68,9 @@ impl Options {
                     }
                     "local_users_file" => {
                         opts.local_users_file = value.to_string();
+                    }
+                    "blacklist" => {
+                        opts.blacklist = value.to_string();
                     }
                     "authtok_type" => {
                         opts.authtok_type = value.to_string();
@@ -122,6 +127,7 @@ mod tests {
         assert!(!opts.enforce_for_root);
         assert!(!opts.local_users_only);
         assert_eq!(opts.local_users_file, "/etc/passwd");
+        assert!(opts.blacklist.is_empty());
         assert!(opts.authtok_type.is_empty());
         assert!(!opts.try_first_pass);
         assert!(!opts.use_first_pass);
@@ -138,6 +144,7 @@ mod tests {
             "enforce_for_root".into(),
             "local_users_only".into(),
             "local_users_file=/etc/passwd.local".into(),
+            "blacklist=/etc/pam_zxcvbn/blacklist".into(),
             "authtok_type=UNIX".into(),
             "use_authtok".into(),
         ];
@@ -149,8 +156,16 @@ mod tests {
         assert!(opts.enforce_for_root);
         assert!(opts.local_users_only);
         assert_eq!(opts.local_users_file, "/etc/passwd.local");
+        assert_eq!(opts.blacklist, "/etc/pam_zxcvbn/blacklist");
         assert_eq!(opts.authtok_type, "UNIX");
         assert!(opts.use_authtok);
+    }
+
+    #[test]
+    fn test_blacklist_empty_value() {
+        let args: Vec<String> = vec!["blacklist=".into()];
+        let opts = Options::parse(&args);
+        assert!(opts.blacklist.is_empty());
     }
 
     #[test]

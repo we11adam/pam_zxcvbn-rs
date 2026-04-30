@@ -2,6 +2,7 @@ use pamsm::{pam_module, Pam, PamError, PamFlags, PamServiceModule};
 use std::ffi::CString;
 use zeroize::Zeroizing;
 
+mod blacklist;
 mod local_users;
 mod options;
 mod pam_io;
@@ -248,27 +249,44 @@ fn do_chauthtok<P: PamIo>(pam: &P, raw_flags: i32, silent: bool, opts: &Options)
             }
         };
 
-        // Evaluate password strength. Use a lossy UTF-8 view only for
-        // zxcvbn; the original bytes are preserved for set_authtok.
-        let mut user_inputs: Vec<&str> = opts
-            .user_inputs
-            .iter()
-            .map(|input| input.as_str())
-            .collect();
-        user_inputs.push(username.as_str());
-        let pw_lossy = Zeroizing::new(String::from_utf8_lossy(new_pass.as_bytes()).into_owned());
-        let result = strength::evaluate(&pw_lossy, &user_inputs, opts);
+        // Check the blacklist first. If the password is listed we skip the
+        // strength check entirely and reuse the same fail/warn path below.
+        let blacklisted = !opts.blacklist.is_empty()
+            && blacklist::is_blacklisted(new_pass.as_bytes(), &opts.blacklist);
 
-        log_debug(
-            pam,
-            opts,
-            &format!(
-                "score={} guesses_log10={:.2} passed={}",
-                result.score, result.guesses_log10, result.passed
-            ),
-        );
+        if blacklisted {
+            log_debug(pam, opts, "password matched an entry in the blacklist");
+        }
 
-        if result.passed {
+        // Evaluate password strength only when the blacklist did not already
+        // disqualify the password. Use a lossy UTF-8 view for zxcvbn only;
+        // the original bytes are preserved for set_authtok.
+        let strength_result = if blacklisted {
+            None
+        } else {
+            let mut user_inputs: Vec<&str> = opts
+                .user_inputs
+                .iter()
+                .map(|input| input.as_str())
+                .collect();
+            user_inputs.push(username.as_str());
+            let pw_lossy =
+                Zeroizing::new(String::from_utf8_lossy(new_pass.as_bytes()).into_owned());
+            let r = strength::evaluate(&pw_lossy, &user_inputs, opts);
+            log_debug(
+                pam,
+                opts,
+                &format!(
+                    "score={} guesses_log10={:.2} passed={}",
+                    r.score, r.guesses_log10, r.passed
+                ),
+            );
+            Some(r)
+        };
+
+        let passed = strength_result.as_ref().is_some_and(|r| r.passed);
+
+        if passed {
             log_debug(pam, opts, "password strength check passed");
             // Store the new password for downstream modules.
             return match pam.set_authtok(&new_pass) {
@@ -280,22 +298,27 @@ fn do_chauthtok<P: PamIo>(pam: &P, raw_flags: i32, silent: bool, opts: &Options)
             };
         }
 
-        // Password is too weak.
-        let strength_msg = format!(
-            "BAD PASSWORD: {} (score={}, log10(guesses)={:.2})",
-            score_description(result.score),
-            result.score,
-            result.guesses_log10,
-        );
+        // Password rejected: build the user-facing message.
+        let fail_msg = if blacklisted {
+            "BAD PASSWORD: password is in the configured blacklist".to_string()
+        } else {
+            let r = strength_result.as_ref().unwrap();
+            format!(
+                "BAD PASSWORD: {} (score={}, log10(guesses)={:.2})",
+                score_description(r.score),
+                r.score,
+                r.guesses_log10,
+            )
+        };
 
         if !enforce {
             // Root without enforce_for_root: warn but succeed.
             log_debug(
                 pam,
                 opts,
-                &format!("weak password accepted for root: {}", strength_msg),
+                &format!("weak password accepted for root: {}", fail_msg),
             );
-            conv_info(pam, silent, &format!("WARNING: {}", strength_msg));
+            conv_info(pam, silent, &format!("WARNING: {}", fail_msg));
             return match pam.set_authtok(&new_pass) {
                 Ok(()) => PamError::SUCCESS,
                 Err(e) => e,
@@ -303,12 +326,14 @@ fn do_chauthtok<P: PamIo>(pam: &P, raw_flags: i32, silent: bool, opts: &Options)
         }
 
         // Show feedback to the user.
-        conv_error(pam, silent, &strength_msg);
-        if let Some(warning) = &result.feedback_warning {
-            conv_error(pam, silent, &format!("Warning: {}", warning));
-        }
-        for suggestion in &result.feedback_suggestions {
-            conv_info(pam, silent, &format!("Suggestion: {}", suggestion));
+        conv_error(pam, silent, &fail_msg);
+        if let Some(r) = &strength_result {
+            if let Some(warning) = &r.feedback_warning {
+                conv_error(pam, silent, &format!("Warning: {}", warning));
+            }
+            for suggestion in &r.feedback_suggestions {
+                conv_info(pam, silent, &format!("Suggestion: {}", suggestion));
+            }
         }
 
         // If we can't retry (use_first_pass/use_authtok), fail immediately.
@@ -835,5 +860,135 @@ mod flow_tests {
         let opts = Options::default();
         let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
         assert_eq!(rc, PamError::CONV_ERR);
+    }
+
+    // -- Password blacklist ----------------------------------------------
+
+    fn blacklist_file(entries: &[&str]) -> tempfile::NamedTempFile {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        for e in entries {
+            writeln!(f, "{}", e).unwrap();
+        }
+        f
+    }
+
+    #[test]
+    fn blacklisted_password_rejected_even_when_strong_enough() {
+        // STRONG_PW would normally pass zxcvbn; blacklist must override.
+        let bl = blacklist_file(&[STRONG_PW]);
+        let mock = MockPam::new("alice");
+        mock.push_password_pair(STRONG_PW);
+
+        let mut opts = Options::default();
+        opts.blacklist = bl.path().to_string_lossy().into_owned();
+        let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
+        assert_eq!(rc, PamError::MAXTRIES);
+        assert!(mock.set_authtok_calls.borrow().is_empty());
+        assert!(
+            mock.errors
+                .borrow()
+                .iter()
+                .any(|m| m.contains("blacklist")),
+            "expected a blacklist error message, got {:?}",
+            *mock.errors.borrow()
+        );
+    }
+
+    #[test]
+    fn blacklisted_then_clean_strong_succeeds() {
+        let bl = blacklist_file(&["password", "hunter2"]);
+        let mock = MockPam::new("alice");
+        mock.push_password_pair("hunter2");
+        mock.push_password_pair(STRONG_PW);
+
+        let mut opts = Options::default();
+        opts.tries = 2;
+        opts.blacklist = bl.path().to_string_lossy().into_owned();
+        let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
+        assert_eq!(rc, PamError::SUCCESS);
+        assert_eq!(mock.set_authtok_calls.borrow().len(), 1);
+        assert_eq!(
+            mock.set_authtok_calls.borrow()[0].as_bytes(),
+            STRONG_PW.as_bytes()
+        );
+    }
+
+    #[test]
+    fn blacklist_skipped_when_path_empty() {
+        // Empty path is the disabled state; STRONG_PW must be accepted.
+        let mock = MockPam::new("alice");
+        mock.push_password_pair(STRONG_PW);
+
+        let mut opts = Options::default();
+        opts.blacklist = String::new();
+        let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
+        assert_eq!(rc, PamError::SUCCESS);
+    }
+
+    #[test]
+    fn missing_blacklist_file_treated_as_empty() {
+        let mock = MockPam::new("alice");
+        mock.push_password_pair(STRONG_PW);
+
+        let mut opts = Options::default();
+        opts.blacklist = "/nonexistent/blacklist.txt".to_string();
+        let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
+        assert_eq!(rc, PamError::SUCCESS);
+    }
+
+    #[test]
+    fn blacklist_root_without_enforce_warns_and_succeeds() {
+        let bl = blacklist_file(&[STRONG_PW]);
+        let mock = MockPam::new("alice").as_root();
+        mock.push_password_pair(STRONG_PW);
+
+        let mut opts = Options::default();
+        opts.blacklist = bl.path().to_string_lossy().into_owned();
+        let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
+        assert_eq!(rc, PamError::SUCCESS);
+
+        let infos = mock.infos.borrow();
+        assert!(
+            infos
+                .iter()
+                .any(|m| m.starts_with("WARNING:") && m.contains("blacklist")),
+            "expected a WARNING about the blacklist, got {:?}",
+            *infos
+        );
+        assert_eq!(mock.set_authtok_calls.borrow().len(), 1);
+    }
+
+    #[test]
+    fn blacklist_with_use_authtok_fails_without_retry() {
+        let bl = blacklist_file(&[STRONG_PW]);
+        let mock = MockPam::new("alice");
+        mock.set_cached(STRONG_PW);
+
+        let mut opts = Options::default();
+        opts.use_authtok = true;
+        opts.tries = 5; // ignored in this path
+        opts.blacklist = bl.path().to_string_lossy().into_owned();
+        let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
+        assert_eq!(rc, PamError::AUTHTOK_ERR);
+        assert!(mock.prompts.borrow().is_empty());
+        assert!(mock.set_authtok_calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn blacklist_not_consulted_when_user_skipped_by_local_users_only() {
+        // Non-local user with local_users_only set: the strength check is
+        // skipped, and the blacklist must follow the same skip semantics.
+        let passwd = passwd_file(&["root"]);
+        let bl = blacklist_file(&["password"]);
+        let mock = MockPam::new("alice");
+        mock.push_password_pair("password");
+
+        let mut opts = Options::default();
+        opts.local_users_only = true;
+        opts.local_users_file = passwd.path().to_string_lossy().into_owned();
+        opts.blacklist = bl.path().to_string_lossy().into_owned();
+        let rc = do_chauthtok(&mock, PAM_UPDATE_AUTHTOK, false, &opts);
+        assert_eq!(rc, PamError::SUCCESS);
+        assert_eq!(mock.set_authtok_calls.borrow()[0].as_bytes(), b"password");
     }
 }

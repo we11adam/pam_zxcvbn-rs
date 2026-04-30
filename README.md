@@ -8,6 +8,7 @@ The built module is a shared library named `libpam_zxcvbn.so`.
 
 - evaluates password strength with `zxcvbn`
 - supports score-based or entropy-based thresholds
+- can reject passwords listed in a configurable blacklist file
 - can retry password entry
 - supports `try_first_pass`, `use_first_pass`, and `use_authtok`
 - can restrict checks to local users from a passwd-style file
@@ -107,6 +108,13 @@ password requisite pam_zxcvbn.so retry=3 user_inputs=company,hostname,service
 password required  pam_unix.so use_authtok sha512 shadow
 ```
 
+Example with a password blacklist:
+
+```pam
+password requisite pam_zxcvbn.so retry=3 blacklist=/etc/pam_zxcvbn/blacklist
+password required  pam_unix.so use_authtok sha512 shadow
+```
+
 Install the compiled library into your PAM module directory, commonly one of:
 
 - `/lib/security`
@@ -128,6 +136,7 @@ Supported options:
 - `enforce_for_root`: reject weak passwords even when the caller is root
 - `local_users_only`: skip strength checks for users not present in the local passwd file
 - `local_users_file=/path/to/passwd`: passwd-style file used by `local_users_only`
+- `blacklist=/path/to/blacklist`: reject any password whose bytes match a line in the file; lines starting with `#` and empty lines are ignored, comparison is case-sensitive and exact, and a missing file is treated as an empty blacklist
 - `authtok_type=LABEL`: changes prompts such as `New LABEL password:`
 - `try_first_pass`: try a cached password first, prompt if missing
 - `use_first_pass`: require a cached password from a previous module
@@ -138,6 +147,7 @@ Supported options:
 - on `PAM_PRELIM_CHECK`, the module returns success and does not prompt
 - on `PAM_UPDATE_AUTHTOK`, the module validates the new password
 - the password is checked against the username plus any configured `user_inputs`
+- when `blacklist` is set, it is consulted before the zxcvbn check and a hit is treated as a failed strength check (same retry, root-warn, and `use_authtok` semantics)
 - for non-local users with `local_users_only`, the module skips the strength check but still sets the password token for downstream modules
 - when root changes a password without `enforce_for_root`, failed strength checks become warnings instead of hard failures
 - `zxcvbn` evaluates only the first 100 characters of the password to bound its analysis cost; a long passphrase whose first 100 characters are weak will be judged weak regardless of what follows
